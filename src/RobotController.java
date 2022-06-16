@@ -1,7 +1,9 @@
 import robot.*;
 
 class RobotController {
-    private static char[][] field;
+
+    private static int robotLoad = 0;
+    private static int lastDir = 4;
 
     public static void main(String[] args) {
         if (args.length != 1) {
@@ -13,15 +15,17 @@ class RobotController {
         Robot robot = world.getRobot();
         Factory factory = world.getFactory();
         /* TODO */
-        field = getWorldField(world, robot, factory, n);
 
-        drawMap(world, robot, factory, n);
-        drawField(field, n);
+        //drawMap(world, robot, factory);
 
-        moveTo(0, 3, world, robot);
 
-        drawMap(world, robot, factory, n);
-        drawField(field, n);
+        while (world.getTotalMaterials() > 0) {
+            tick(world, factory, robot);
+        }
+
+        //last unload
+        moveTo(factory.getX(), factory.getY(), world, robot);
+        robot.unloadMaterials();
 
         factory.waitTillFinished();
         System.out.println("Remaining materials: " + world.getTotalMaterials()); // should be 0
@@ -29,66 +33,112 @@ class RobotController {
     }
 
     private static void moveTo(int x, int y, World world, Robot robot) {
-        while(robot.getX() != x || robot.getY() != y){
-            //move one field
-            if (getVectorSize(robot.getX(), robot.getY(), x, y) >
-                    getVectorSize(robot.getX(), robot.getY() - 1, x, y)) {
-                robot.moveUp();
-            } else if (getVectorSize(robot.getX(), robot.getY(), x, y) >
-                    getVectorSize(robot.getX() - 1, robot.getY(), x, y)) {
-                robot.moveLeft();
-            } else if (getVectorSize(robot.getX(), robot.getY(), x, y) >
-                    getVectorSize(robot.getX() + 1, robot.getY(), x, y)) {
-                robot.moveRight();
-            } else if (getVectorSize(robot.getX(), robot.getY(), x, y) >
-                    getVectorSize(robot.getX(), robot.getY() + 1, x, y)) {
-                robot.moveDown();
+        while (robot.getX() != x || robot.getY() != y) {
+            switch (getShortestDirection(x, y, world, robot)) {
+                case 0 -> robot.moveUp();
+                case 1 -> robot.moveDown();
+                case 2 -> robot.moveRight();
+                case 3 -> robot.moveLeft();
             }
-            //collect and mark
-            if (field[robot.getX()][robot.getY()] != 'v') {
-                for (int i = 0; i < 3; i++) {
-                    if (world.getFieldMaterials(robot.getX(), robot.getY()) > 0) {
-                        robot.gatherMaterials();
-                    } else {
-                        field[robot.getX()][robot.getY()] = 'v';
-                        break;
+            //drawMap(world, robot, world.getFactory());
+        }
+    }
+
+    private static void tick(World world, Factory factory, Robot robot) {
+        if (robotLoad >= 3) {
+            moveTo(factory.getX(), factory.getY(), world, robot);
+            robot.unloadMaterials();
+            robotLoad = 0;
+        } else {
+            Cord nextOre = getNextOre(robot.getX(), robot.getY(), world);
+            moveTo(nextOre.x(), nextOre.y(), world, robot);
+            robot.gatherMaterials();
+            robotLoad++;
+        }
+    }
+
+    private static int getShortestDirection(int x, int y, World world, Robot robot) {
+        //0 up | 1 down | 2 right | 3 left
+
+        Vector up = new Vector(robot.getX(), robot.getY() - 1, x, y, 0, world);
+        Vector down = new Vector(robot.getX(), robot.getY() + 1, x, y, 1, world);
+        Vector right = new Vector(robot.getX() + 1, robot.getY(), x, y, 2, world);
+        Vector left = new Vector(robot.getX() - 1, robot.getY(), x, y, 3, world);
+
+        Vector minDistance;
+
+        if(lastDir != 1){
+            minDistance = up;
+        }else {
+            minDistance = down;
+        }
+
+        if (down.getLength() < minDistance.getLength() && lastDir != 0) {
+            minDistance = down;
+        }
+        if (right.getLength() < minDistance.getLength() && lastDir != 3) {
+            minDistance = right;
+        }
+        if (left.getLength() < minDistance.getLength() && lastDir != 2) {
+            minDistance = left;
+        }
+        lastDir = minDistance.getDir();
+        return minDistance.getDir();
+    }
+
+    static class Vector {
+        World world;
+        int targetX, targetY, startX, startY;
+        int dir; // 0 up | 1 down | 2 right | 3 left
+
+        public Vector(int targetX, int targetY, int startX, int startY, int dir, World world) {
+            this.targetX = targetX;
+            this.targetY = targetY;
+            this.startX = startX;
+            this.startY = startY;
+            this.dir = dir;
+            this.world = world;
+        }
+
+        public int getDir() {
+            return dir;
+        }
+
+        public double getLength() {
+            if (targetX < world.getN() && targetY < world.getN() && targetX >= 0 && targetY >= 0)
+                return getVectorSize(startX, startY, targetX, targetY) * 8 + world.getFieldTime(targetX, targetY);
+            else
+                return getVectorSize(startX, startY, targetX, targetY) + 999999999;
+        }
+    }
+
+    private static double getVectorSize(int startX, int startY, int targetX, int targetY) {
+        return Math.sqrt((targetX - startX) * (targetX - startX) + (targetY - startY) * (targetY - startY));
+    }
+
+
+    record Cord(int x, int y) {
+    }
+
+    private static Cord getNextOre(int robotX, int robotY, World world) {
+        Cord next = new Cord(0, 0);
+        Cord c;
+        for (int i = 0; i < world.getN(); i++) {
+            for (int j = 0; j < world.getN(); j++) {
+                if (world.getFieldMaterials(j, i) > 0) {
+                    c = new Cord(j, i);
+                    if (getVectorSize(robotX, robotY, next.x(), next.y()) > getVectorSize(robotX, robotY, c.x(), c.y())) {
+                        next = c;
                     }
                 }
             }
         }
-
+        return next;
     }
 
-    private static double getVectorSize(int robotX, int yGhost, int targetX, int targetY) {
-        return Math.sqrt((targetX - robotX) * (targetX - robotX) + (targetY - yGhost) * (targetY - yGhost));
-    }
-
-    private static char[][] getWorldField(World world, Robot robot, Factory factory, int n) {
-        char[][] a = new char[n][n];
-        for (int i = 0; i < 11; i++) {
-            for (int j = 0; j < 11; j++) {
-                if (world.getFieldMaterials(j, i) > 0)
-                    a[j][i] = 'M';
-                else
-                    a[j][i] = '-';
-            }
-        }
-        return a;
-    }
-
-    private static void drawField(char[][] a, int n) {
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < n; j++) {
-                System.out.print(a[j][i] + " ");
-            }
-            System.out.println();
-        }
-        System.out.println();
-    }
-
-    public static void drawMap(World world, Robot robot, Factory factory, int n) {
-        for (int i = 0; i < 11; i++) {
-            for (int j = 0; j < 11; j++) {
+    public static void drawMap(World world, Robot robot, Factory factory) {
+        for (int i = 0; i < world.getN(); i++) {
+            for (int j = 0; j < world.getN(); j++) {
                 if (robot.getX() == j && robot.getY() == i) {
                     System.out.print("x");
                 } else if (factory.getX() == j && factory.getY() == i) {
